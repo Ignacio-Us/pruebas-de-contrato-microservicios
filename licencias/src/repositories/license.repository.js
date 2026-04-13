@@ -1,87 +1,119 @@
-'use strict';
+const licenseRepository = require('../repositories/license.repository');
 
-const { getPool } = require('../db/pool');
+// ═══════════════════════════════════════════════════════════════════════════
+// ERRORES DE DOMINIO
+// ═══════════════════════════════════════════════════════════════════════════
 
-
-class LicenseRepository {
-
-  /**
-   * Inserta una nueva licencia en la base de datos.
-   * @param {Object} license - Objeto ya validado con folio generado.
-   * @returns {Promise<void>}
-   */
-  async create(license) {
-    const sql = `
-      INSERT INTO licenses (folio, patient_id, doctor_id, diagnosis, start_date, days, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const params = [
-      license.folio,
-      license.patientId,
-      license.doctorId,
-      license.diagnosis,
-      license.startDate,
-      license.days,
-      license.status,
-    ];
-
-    await getPool().execute(sql, params);
-  }
-
-  /**
-   * Busca una licencia por su folio (PK).
-   * @param {string} folio
-   * @returns {Promise<Object|null>} La licencia encontrada o null si no existe.
-   */
-  async findByFolio(folio) {
-    const sql = 'SELECT * FROM licenses WHERE folio = ? LIMIT 1';
-    const [rows] = await getPool().execute(sql, [folio]);
-    return rows.length ? this._toEntity(rows[0]) : null;
-  }
-
-  /**
-   * Busca todas las licencias de un paciente.
-   * @param {string} patientId
-   * @returns {Promise<Object[]>} Array de licencias (puede ser vacío).
-   */
-  async findByPatientId(patientId) {
-    const sql = `
-      SELECT * FROM licenses
-      WHERE patient_id = ?
-      ORDER BY created_at DESC
-    `;
-    const [rows] = await getPool().execute(sql, [patientId]);
-    return rows.map(row => this._toEntity(row));
-  }
-
-  /**
-   * Mapea una fila de la BD (snake_case) al objeto de la aplicación (camelCase).
-   * 
-   * Por qué se hace este mapeo:
-   *  - La BD usa convención SQL (snake_case): patient_id, start_date.
-   *  - JavaScript usa convención camelCase: patientId, startDate.
-   *  - Este método es el puente entre ambos mundos.
-   * 
-   * @private
-   * @param {Object} row - Fila cruda devuelta por mysql2.
-   * @returns {Object} Entidad lista para usar en la aplicación.
-   */
-  _toEntity(row) {
-    return {
-      folio:     row.folio,
-      patientId: row.patient_id,
-      doctorId:  row.doctor_id,
-      diagnosis: row.diagnosis,
-      startDate: row.start_date instanceof Date
-        ? row.start_date.toISOString().split('T')[0]
-        : row.start_date,
-      days:      row.days,
-      status:    row.status,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+class InvalidDaysError extends Error {
+  constructor() {
+    super('INVALID_DAYS');
+    this.name = 'InvalidDaysError';
   }
 }
 
-module.exports = new LicenseRepository();
+class LicenseNotFoundError extends Error {
+  constructor(folio) {
+    super(`License ${folio} not found`);
+    this.name = 'LicenseNotFoundError';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SERVICIO
+// ═══════════════════════════════════════════════════════════════════════════
+
+class LicenseService {
+
+  /**
+   * Emite una nueva licencia médica.
+   *
+   * Reglas de negocio:
+   *  1. days debe ser > 0, si no lanza InvalidDaysError.
+   *  2. El folio es generado por la BD de forma correlativa (L-1001, L-1002...).
+   *  3. El status inicial es siempre "issued".
+   *
+   * @param {Object} dto
+   * @param {string} dto.patientId  - RUT del paciente. Ej: "11111111-1"
+   * @param {string} dto.doctorId   - ID del médico.   Ej: "DOC-123"
+   * @param {string} dto.diagnosis  - Diagnóstico
+   * @param {string} dto.startDate  - Fecha inicio (YYYY-MM-DD)
+   * @param {number} dto.days       - Días de reposo (debe ser > 0)
+   * @returns {Promise<Object>} Licencia creada
+   * @throws {InvalidDaysError} Si days <= 0 o no viene
+   */
+  async issueLicense({ patientId, doctorId, diagnosis, startDate, days }) {
+
+    if (!days || Number(days) <= 0) {
+      throw new InvalidDaysError();
+    }
+
+    // El folio se genera en el repository de forma atómica
+    // para evitar duplicados cuando hay múltiples requests simultáneos
+    const folio = await licenseRepository.generateFolio();
+
+    const license = {
+      folio,               // Ej: "L-1001"
+      patientId,           // RUT: "11111111-1"
+      doctorId,            // "DOC-123"
+      diagnosis,
+      startDate,
+      days:   Number(days),
+      status: 'issued',
+    };
+
+    await licenseRepository.create(license);
+
+    return license;
+  }
+
+  /**
+   * Retorna una licencia por su folio.
+   *
+   * @param {string} folio - Ej: "L-1001"
+   * @returns {Promise<Object>}
+   * @throws {LicenseNotFoundError} Si el folio no existe
+   */
+  async getLicense(folio) {
+    const license = await licenseRepository.findByFolio(folio);
+
+    if (!license) {
+      throw new LicenseNotFoundError(folio);
+    }
+
+    return license;
+  }
+
+  /**
+   * Retorna todas las licencias de un paciente.
+   * Nunca lanza error si no hay resultados — retorna [] en su lugar.
+   *
+   * @param {string} patientId - RUT del paciente
+   * @returns {Promise<Object[]>}
+   */
+  async getLicensesByPatient(patientId) {
+    return licenseRepository.findByPatientId(patientId);
+  }
+
+  /**
+   * Verifica si una licencia existe y está vigente (status = "issued").
+   *
+   * @param {string} folio - Ej: "L-1001"
+   * @returns {Promise<{ valid: boolean }>}
+   * @throws {LicenseNotFoundError} Si el folio no existe
+   */
+  async verifyLicense(folio) {
+    const license = await licenseRepository.findByFolio(folio);
+
+    if (!license) {
+      throw new LicenseNotFoundError(folio);
+    }
+
+    return { valid: license.status === 'issued' };
+  }
+}
+
+module.exports = {
+  licenseService:    new LicenseService(),
+  InvalidDaysError,
+  LicenseNotFoundError,
+};
