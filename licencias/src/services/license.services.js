@@ -1,6 +1,5 @@
 'use strict';
 
-const { v4: uuidv4 } = require('uuid');
 const licenseRepository = require('../repositories/license.repository');
 
 class InvalidDaysError extends Error {
@@ -17,40 +16,47 @@ class LicenseNotFoundError extends Error {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SERVICIO
+// ═══════════════════════════════════════════════════════════════════════════
 
 class LicenseService {
 
   /**
    * Emite una nueva licencia médica.
    *
-   * Reglas de negocio aplicadas aquí:
-   *  1. Los días deben ser > 0. Si no, se rechaza con InvalidDaysError.
-   *  2. El folio es generado por el servidor (UUID v4), nunca por el cliente.
-   *  3. El status inicial es siempre "issued". El cliente no puede elegirlo.
+   * Reglas de negocio:
+   *  1. days debe ser > 0, si no lanza InvalidDaysError.
+   *  2. El folio es generado por la BD de forma correlativa (L-1001, L-1002...).
+   *  3. El status inicial es siempre "issued".
    *
    * @param {Object} dto
-   * @param {string} dto.patientId  
-   * @param {string} dto.doctorId   
-   * @param {string} dto.diagnosis  
+   * @param {string} dto.patientId  - RUT del paciente. Ej: "11111111-1"
+   * @param {string} dto.doctorId   - ID del médico.   Ej: "DOC-123"
+   * @param {string} dto.diagnosis  - Diagnóstico
    * @param {string} dto.startDate  - Fecha inicio (YYYY-MM-DD)
    * @param {number} dto.days       - Días de reposo (debe ser > 0)
    * @returns {Promise<Object>} Licencia creada
    * @throws {InvalidDaysError} Si days <= 0 o no viene
    */
   async issueLicense({ patientId, doctorId, diagnosis, startDate, days }) {
-   
+
     if (!days || Number(days) <= 0) {
       throw new InvalidDaysError();
     }
 
+    // El folio se genera en el repository de forma atómica
+    // para evitar duplicados cuando hay múltiples requests simultáneos
+    const folio = await licenseRepository.generateFolio();
+
     const license = {
-      folio:     uuidv4(),     
-      patientId,
-      doctorId,
+      folio,               // Ej: "L-1001"
+      patientId,           // RUT: "11111111-1"
+      doctorId,            // "DOC-123"
       diagnosis,
       startDate,
-      days:      Number(days),
-      status:    'issued',       
+      days:   Number(days),
+      status: 'issued',
     };
 
     await licenseRepository.create(license);
@@ -61,8 +67,8 @@ class LicenseService {
   /**
    * Retorna una licencia por su folio.
    *
-   * @param {string} folio
-   * @returns {Promise<Object>} La licencia encontrada
+   * @param {string} folio - Ej: "L-1001"
+   * @returns {Promise<Object>}
    * @throws {LicenseNotFoundError} Si el folio no existe
    */
   async getLicense(folio) {
@@ -77,13 +83,10 @@ class LicenseService {
 
   /**
    * Retorna todas las licencias de un paciente.
+   * Nunca lanza error si no hay resultados — retorna [] en su lugar.
    *
-   * Por qué nunca lanza error si no hay resultados:
-   *  - Un paciente sin licencias no es un error, es un estado válido.
-   *  - Retornar [] es más limpio que un 404 para el consumidor.
-   *
-   * @param {string} patientId
-   * @returns {Promise<Object[]>} Array de licencias (puede ser vacío)
+   * @param {string} patientId - RUT del paciente
+   * @returns {Promise<Object[]>}
    */
   async getLicensesByPatient(patientId) {
     return licenseRepository.findByPatientId(patientId);
@@ -92,12 +95,7 @@ class LicenseService {
   /**
    * Verifica si una licencia existe y está vigente (status = "issued").
    *
-   * Por qué este método existe separado de getLicense:
-   *  - El consumidor (ej: Portal Paciente, Nómina) solo necesita saber
-   *    si es válida o no. No necesita todos los datos de la licencia.
-   *  - Tener un endpoint dedicado hace el contrato más claro y simple.
-   *
-   * @param {string} folio
+   * @param {string} folio - Ej: "L-1001"
    * @returns {Promise<{ valid: boolean }>}
    * @throws {LicenseNotFoundError} Si el folio no existe
    */
@@ -113,7 +111,7 @@ class LicenseService {
 }
 
 module.exports = {
-  licenseService:       new LicenseService(),
+  licenseService:    new LicenseService(),
   InvalidDaysError,
   LicenseNotFoundError,
 };
