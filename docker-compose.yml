@@ -1,0 +1,184 @@
+version: '3.8'
+
+services:
+
+  # ── Base de datos ────────────────────────────────────────────────────────
+  mariadb:
+    image: mariadb:10.11
+    container_name: licencias_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_DATABASE:      licenses_db
+      MYSQL_USER:          licencias_user
+      MYSQL_PASSWORD:      licencias_pass
+    ports:
+      - "3307:3307"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./licencias/src/db/migrate.sql:/docker-entrypoint-initdb.d/migrate.sql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - licencias_network
+
+  # ── Servicio de Licencias ────────────────────────────────────────────────
+  licencias:
+    build:
+      context: ./licencias
+      dockerfile: Dockerfile
+    container_name: licencias_service
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT:                 3000
+      NODE_ENV:             development
+      DB_HOST:              mariadb
+      DB_PORT:              3307
+      DB_USER:              licencias_user
+      DB_PASSWORD:          licencias_pass
+      DB_NAME:              licenses_db
+    volumes:
+      - ./licencias/src:/app/src
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      - licencias_network
+
+  # ── Portal Paciente ──────────────────────────────────────────────────────
+  portal-paciente:
+    build:
+      context: ./portal-paciente
+      dockerfile: Dockerfile
+    container_name: portal_paciente_service
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      PORT:                 3002
+      NODE_ENV:             development
+      LICENSES_SERVICE_URL: http://licencias:3000
+    volumes:
+      - ./portal-paciente/src:/app/src
+    depends_on:
+      - licencias
+    networks:
+      - licencias_network
+
+  # ── Validador Aseguradora ────────────────────────────────────────────────
+  validador-aseguradora:
+    build:
+      context: ./validador-aseguradora
+      dockerfile: Dockerfile
+    container_name: validador_aseguradora_service
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    environment:
+      PORT:                 3003
+      NODE_ENV:             development
+      LICENSES_SERVICE_URL: http://licencias:3000
+    volumes:
+      - ./validador-aseguradora/src:/app/src
+    depends_on:
+      - licencias
+    networks:
+      - licencias_network
+
+  # ════════════════════════════════════════════════════════════════════════
+  # CONSUMER TESTS — generan los pacts JSON
+  # Uso: docker compose run --rm <nombre-servicio>
+  # ════════════════════════════════════════════════════════════════════════
+
+  # Consumer de Licencias → genera LicenseConsumer-LicensesService.json
+  consumer-tests-licencias:
+    build:
+      context: ./licencias
+      dockerfile: Dockerfile
+    container_name: consumer_tests_licencias
+    command: npm run test:pact -- --testPathPattern=consumer
+    environment:
+      NODE_ENV: test
+    volumes:
+      - ./licencias/pacts:/app/pacts
+      - ./licencias/src:/app/src
+      - ./licencias/tests:/app/tests
+    networks:
+      - licencias_network
+
+  # Consumer de Portal Paciente → genera PortalPaciente-LicensesService.json
+  consumer-tests-portal:
+    build:
+      context: ./portal-paciente
+      dockerfile: Dockerfile
+    container_name: consumer_tests_portal
+    command: npm run test:pact -- --testPathPattern=consumer
+    environment:
+      NODE_ENV: test
+    volumes:
+      # Los pacts generados van a la carpeta compartida
+      - ./licencias/pacts:/app/pacts
+      - ./portal-paciente/src:/app/src
+      - ./portal-paciente/tests:/app/tests
+    networks:
+      - licencias_network
+
+  # Consumer de Validador Aseguradora → genera ValidadorAseguradora-LicensesService.json
+  consumer-tests-validador:
+    build:
+      context: ./validador-aseguradora
+      dockerfile: Dockerfile
+    container_name: consumer_tests_validador
+    command: npm run test:pact -- --testPathPattern=consumer
+    environment:
+      NODE_ENV: test
+    volumes:
+      # Los pacts generados van a la carpeta compartida
+      - ./licencias/pacts:/app/pacts
+      - ./validador-aseguradora/src:/app/src
+      - ./validador-aseguradora/tests:/app/tests
+    networks:
+      - licencias_network
+      
+  # ── Verify Licencias ─────────────────────────────────────────────────────
+  # Verifica que el provider cumple el contrato generado por el consumer
+  # Uso: docker compose run --rm verify-licencias
+  # IMPORTANTE: requiere que consumer-tests haya corrido antes
+  verify-licencias:
+    build:
+      context: ./licencias
+      dockerfile: Dockerfile
+    container_name: verify_licencias
+    command: npm run test:pact -- --testPathPattern=provider
+    environment:
+      NODE_ENV:    test
+      DB_HOST:     mariadb
+      DB_PORT:     3307
+      DB_USER:     licencias_user
+      DB_PASSWORD: licencias_pass
+      DB_NAME:     licenses_db
+    volumes:
+      - ./licencias/pacts:/app/pacts
+      - ./licencias/src:/app/src
+      - ./licencias/tests:/app/tests
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    networks:
+      - licencias_network
+
+# ── Volúmenes ─────────────────────────────────────────────────────────────
+volumes:
+  mariadb_data:
+    driver: local
+
+# ── Red interna compartida ────────────────────────────────────────────────
+networks:
+  licencias_network:
+    driver: bridge
