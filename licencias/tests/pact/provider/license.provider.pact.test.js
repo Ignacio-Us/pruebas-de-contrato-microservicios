@@ -22,7 +22,9 @@ describe('LicensesService — Provider Pact Verification', () => {
     });
   });
 
-  afterAll((done) => server.close(done));
+  afterAll((done) => {
+    server.close(done);
+  });
 
   it('cumple el contrato definido por LicenseConsumer', async () => {
     await new Verifier({
@@ -31,7 +33,7 @@ describe('LicensesService — Provider Pact Verification', () => {
 
       // Lee el pact JSON generado por el consumer test
       pactUrls: [
-        path.resolve(__dirname, '../../../pacts/LicenseConsumer-LicensesService.json'),
+        path.resolve(process.cwd(), 'pacts', 'LicenseConsumer-LicensesService.json'),
       ],
 
       // Endpoint que prepara el estado de la BD antes de cada interacción

@@ -8,7 +8,7 @@ const supertest              = require('supertest');
 const provider = new PactV3({
   consumer: 'LicenseConsumer',
   provider: 'LicensesService',
-  dir:      path.resolve(__dirname, '../../../pacts'),
+  dir:      path.resolve(process.cwd(), 'pacts'),
   logLevel: 'warn',
 });
 
@@ -26,7 +26,6 @@ const licenseBody = {
 };
 
 describe('LicenseConsumer Pact', () => {
-
   describe('POST /licenses', () => {
 
     // POSITIVO
@@ -48,7 +47,7 @@ describe('LicenseConsumer Pact', () => {
         },
         willRespondWith: {
           status:  201,
-          headers: { 'Content-Type': like('application/json') },
+          headers: { 'Content-Type': 'application/json' },
           body:    licenseBody,
         },
       });

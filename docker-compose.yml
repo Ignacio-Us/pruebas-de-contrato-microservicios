@@ -102,7 +102,7 @@ services:
       context: ./licencias
       dockerfile: Dockerfile
     container_name: consumer_tests_licencias
-    command: npm run test:pact -- --testPathPatterns=consumer
+    command: npm run test:pact -- tests/pact/consumer
     environment:
       NODE_ENV: test
     volumes:
@@ -118,7 +118,7 @@ services:
       context: ./portal-paciente
       dockerfile: Dockerfile
     container_name: consumer_tests_portal
-    command: npm run test:pact -- --testPathPatterns=consumer
+    command: npm run test:pact -- tests/pact/consumer
     environment:
       NODE_ENV: test
     volumes:
@@ -135,7 +135,7 @@ services:
       context: ./validador-aseguradora
       dockerfile: Dockerfile
     container_name: consumer_tests_validador
-    command: npm run test:pact -- --testPathPatterns=consumer
+    command: npm run test:pact -- tests/pact/consumer
     environment:
       NODE_ENV: test
     volumes:
@@ -155,7 +155,7 @@ services:
       context: ./licencias
       dockerfile: Dockerfile
     container_name: verify_licencias
-    command: npm run test:pact -- --testPathPatterns=provider
+    command: npm run test:pact -- tests/pact/provider
     environment:
       NODE_ENV:    test
       DB_HOST:     mariadb
