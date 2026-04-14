@@ -1,6 +1,6 @@
 const path = require('path');
 const { PactV3, MatchersV3 } = require('@pact-foundation/pact');
-const { LicenseClient } = require('../../src/clients/licenseClient');
+const { LicenseClient } = require('../../../src/clients/licenseClient');
 
 const { like, eachLike } = MatchersV3;
 
