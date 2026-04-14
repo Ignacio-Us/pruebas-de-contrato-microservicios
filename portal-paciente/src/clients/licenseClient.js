@@ -27,4 +27,4 @@ class LicenseClient {
   }
 }
 
-module.exports = new LicenseClient();
+module.exports = { LicenseClient };

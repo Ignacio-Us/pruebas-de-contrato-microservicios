@@ -1,6 +1,7 @@
-const axios = require('axios');
+const axios = require("axios");
 
-const LICENSES_SERVICE_URL = process.env.LICENSES_SERVICE_URL || 'http://localhost:3001';
+const LICENSES_SERVICE_URL =
+  process.env.LICENSES_SERVICE_URL || "http://localhost:3001";
 
 class LicenseClient {
   constructor(baseURL = LICENSES_SERVICE_URL) {
@@ -25,12 +26,14 @@ class LicenseClient {
 
   async getPatientLicenses(patientId) {
     try {
-      const response = await this.api.get('/licenses', { params: { patientId } });
+      const response = await this.api.get("/licenses", {
+        params: { patientId },
+      });
       return response.data;
     } catch (error) {
-      throw new Error('License Service Unavailable');
+      throw new Error("License Service Unavailable");
     }
   }
 }
 
-module.exports = new LicenseClient();
+module.exports = { LicenseClient };

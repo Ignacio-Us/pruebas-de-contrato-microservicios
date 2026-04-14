@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test:pact": "jest tests/consumer --runInBand --detectOpenHandles"
+    "test:pact": "jest --testPathPatterns=pact --runInBand --detectOpenHandles"
   },
   "keywords": [],
   "author": "",
