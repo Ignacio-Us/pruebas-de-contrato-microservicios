@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instalamos TODAS las dependencias (incluyendo dev para Jest y Pact)
-RUN npm ci
+RUN npm install
 
 COPY src/ src/
 COPY tests/ tests/
