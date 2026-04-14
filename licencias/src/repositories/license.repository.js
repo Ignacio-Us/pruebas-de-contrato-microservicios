@@ -1,119 +1,87 @@
-const licenseRepository = require('../repositories/license.repository');
+'use strict';
 
-// ═══════════════════════════════════════════════════════════════════════════
-// ERRORES DE DOMINIO
-// ═══════════════════════════════════════════════════════════════════════════
+const { getPool } = require('../db/pool');
 
-class InvalidDaysError extends Error {
-  constructor() {
-    super('INVALID_DAYS');
-    this.name = 'InvalidDaysError';
+function mapRowToLicense(row) {
+  if (!row) return null;
+  return {
+    folio:     row.folio,
+    patientId: row.patient_id,
+    doctorId:  row.doctor_id,
+    diagnosis: row.diagnosis,
+    startDate: row.start_date instanceof Date
+      ? row.start_date.toISOString().slice(0, 10)
+      : row.start_date,
+    days:      Number(row.days),
+    status:    row.status,
+  };
+}
+
+async function generateFolio() {
+  const pool = getPool();
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    await conn.execute(
+      'UPDATE license_sequence SET last_number = last_number + 1 WHERE id = 1'
+    );
+
+    const [rows] = await conn.execute(
+      'SELECT last_number FROM license_sequence WHERE id = 1'
+    );
+
+    await conn.commit();
+
+    const nextNumber = rows?.[0]?.last_number;
+    return `L-${nextNumber}`;
+
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
   }
 }
 
-class LicenseNotFoundError extends Error {
-  constructor(folio) {
-    super(`License ${folio} not found`);
-    this.name = 'LicenseNotFoundError';
-  }
+async function create({ folio, patientId, doctorId, diagnosis, startDate, days, status }) {
+  const pool = getPool();
+  await pool.execute(
+    `INSERT INTO licenses
+      (folio, patient_id, doctor_id, diagnosis, start_date, days, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [folio, patientId, doctorId, diagnosis, startDate, Number(days), status]
+  );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// SERVICIO
-// ═══════════════════════════════════════════════════════════════════════════
+async function findByFolio(folio) {
+  const pool = getPool();
+  const [rows] = await pool.execute(
+    `SELECT folio, patient_id, doctor_id, diagnosis, start_date, days, status
+     FROM licenses
+     WHERE folio = ?
+     LIMIT 1`,
+    [folio]
+  );
+  return mapRowToLicense(rows[0]);
+}
 
-class LicenseService {
-
-  /**
-   * Emite una nueva licencia médica.
-   *
-   * Reglas de negocio:
-   *  1. days debe ser > 0, si no lanza InvalidDaysError.
-   *  2. El folio es generado por la BD de forma correlativa (L-1001, L-1002...).
-   *  3. El status inicial es siempre "issued".
-   *
-   * @param {Object} dto
-   * @param {string} dto.patientId  - RUT del paciente. Ej: "11111111-1"
-   * @param {string} dto.doctorId   - ID del médico.   Ej: "DOC-123"
-   * @param {string} dto.diagnosis  - Diagnóstico
-   * @param {string} dto.startDate  - Fecha inicio (YYYY-MM-DD)
-   * @param {number} dto.days       - Días de reposo (debe ser > 0)
-   * @returns {Promise<Object>} Licencia creada
-   * @throws {InvalidDaysError} Si days <= 0 o no viene
-   */
-  async issueLicense({ patientId, doctorId, diagnosis, startDate, days }) {
-
-    if (!days || Number(days) <= 0) {
-      throw new InvalidDaysError();
-    }
-
-    // El folio se genera en el repository de forma atómica
-    // para evitar duplicados cuando hay múltiples requests simultáneos
-    const folio = await licenseRepository.generateFolio();
-
-    const license = {
-      folio,               // Ej: "L-1001"
-      patientId,           // RUT: "11111111-1"
-      doctorId,            // "DOC-123"
-      diagnosis,
-      startDate,
-      days:   Number(days),
-      status: 'issued',
-    };
-
-    await licenseRepository.create(license);
-
-    return license;
-  }
-
-  /**
-   * Retorna una licencia por su folio.
-   *
-   * @param {string} folio - Ej: "L-1001"
-   * @returns {Promise<Object>}
-   * @throws {LicenseNotFoundError} Si el folio no existe
-   */
-  async getLicense(folio) {
-    const license = await licenseRepository.findByFolio(folio);
-
-    if (!license) {
-      throw new LicenseNotFoundError(folio);
-    }
-
-    return license;
-  }
-
-  /**
-   * Retorna todas las licencias de un paciente.
-   * Nunca lanza error si no hay resultados — retorna [] en su lugar.
-   *
-   * @param {string} patientId - RUT del paciente
-   * @returns {Promise<Object[]>}
-   */
-  async getLicensesByPatient(patientId) {
-    return licenseRepository.findByPatientId(patientId);
-  }
-
-  /**
-   * Verifica si una licencia existe y está vigente (status = "issued").
-   *
-   * @param {string} folio - Ej: "L-1001"
-   * @returns {Promise<{ valid: boolean }>}
-   * @throws {LicenseNotFoundError} Si el folio no existe
-   */
-  async verifyLicense(folio) {
-    const license = await licenseRepository.findByFolio(folio);
-
-    if (!license) {
-      throw new LicenseNotFoundError(folio);
-    }
-
-    return { valid: license.status === 'issued' };
-  }
+async function findByPatientId(patientId) {
+  const pool = getPool();
+  const [rows] = await pool.execute(
+    `SELECT folio, patient_id, doctor_id, diagnosis, start_date, days, status
+     FROM licenses
+     WHERE patient_id = ?
+     ORDER BY created_at DESC`,
+    [patientId]
+  );
+  return rows.map(mapRowToLicense);
 }
 
 module.exports = {
-  licenseService:    new LicenseService(),
-  InvalidDaysError,
-  LicenseNotFoundError,
+  generateFolio,
+  create,
+  findByFolio,
+  findByPatientId,
 };

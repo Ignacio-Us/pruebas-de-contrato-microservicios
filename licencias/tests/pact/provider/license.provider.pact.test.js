@@ -3,9 +3,10 @@
 require('dotenv').config();
 
 const { Verifier } = require('@pact-foundation/pact');
-const path         = require('path');
-const http         = require('http');
+const path         = require('node:path');
+const http         = require('node:http');
 const { createApp } = require('../../../src/app');
+const { closePool } = require('../../../src/db/pool');
 
 describe('LicensesService — Provider Pact Verification', () => {
   let server;
@@ -23,7 +24,10 @@ describe('LicensesService — Provider Pact Verification', () => {
   });
 
   afterAll((done) => {
-    server.close(done);
+    server.close(async () => {
+      await closePool();
+      done();
+    });
   });
 
   it('cumple el contrato definido por LicenseConsumer', async () => {

@@ -13,7 +13,7 @@ services:
       MYSQL_USER:          licencias_user
       MYSQL_PASSWORD:      licencias_pass
     ports:
-      - "3307:3307"
+      - "3307:3306"
     volumes:
       - mariadb_data:/var/lib/mysql
       - ./licencias/src/db/migrate.sql:/docker-entrypoint-initdb.d/migrate.sql
@@ -39,7 +39,7 @@ services:
       PORT:                 3000
       NODE_ENV:             development
       DB_HOST:              mariadb
-      DB_PORT:              3307
+      DB_PORT:              3306
       DB_USER:              licencias_user
       DB_PASSWORD:          licencias_pass
       DB_NAME:              licenses_db
@@ -159,7 +159,7 @@ services:
     environment:
       NODE_ENV:    test
       DB_HOST:     mariadb
-      DB_PORT:     3307
+      DB_PORT:     3306
       DB_USER:     licencias_user
       DB_PASSWORD: licencias_pass
       DB_NAME:     licenses_db

@@ -29,4 +29,12 @@ function getPool() {
   return pool;
 }
 
-module.exports = { getPool };
+async function closePool() {
+  if (pool) {
+    const current = pool;
+    pool = null;
+    await current.end();
+  }
+}
+
+module.exports = { getPool, closePool };
